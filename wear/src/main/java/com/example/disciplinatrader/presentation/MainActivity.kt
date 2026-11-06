@@ -1,115 +1,99 @@
-/* While this template provides a good starting point for using Wear Compose, you can always
- * take a look at https://github.com/android/wear-os-samples/tree/main/ComposeStarter to find the
- * most up to date changes to the libraries and their usages.
- */
-
 package com.example.disciplinatrader.presentation
 
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
-import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.runtime.Composable
+import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.text.BasicText
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.res.stringResource
-import androidx.wear.compose.foundation.lazy.TransformingLazyColumn
-import androidx.wear.compose.foundation.lazy.rememberTransformingLazyColumnState
-import androidx.wear.compose.material3.AppScaffold
-import androidx.wear.compose.material3.Button
-import androidx.wear.compose.material3.ButtonDefaults
-import androidx.wear.compose.material3.EdgeButton
-import androidx.wear.compose.material3.ListHeader
-import androidx.wear.compose.material3.MaterialTheme
-import androidx.wear.compose.material3.ScreenScaffold
-import androidx.wear.compose.material3.SurfaceTransformation
-import androidx.wear.compose.material3.Text
-import androidx.wear.compose.material3.lazy.rememberTransformationSpec
-import androidx.wear.compose.material3.lazy.transformedHeight
-import androidx.wear.compose.ui.tooling.preview.WearPreviewDevices
-import androidx.wear.compose.ui.tooling.preview.WearPreviewFontScales
-import com.example.disciplinatrader.R
-import com.example.disciplinatrader.presentation.theme.DisciplinaTraderTheme
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.text.TextStyle
+import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
+import java.io.BufferedReader
+import java.io.InputStreamReader
+import java.io.PrintWriter
+import java.net.Socket
+import kotlin.concurrent.thread
 
 class MainActivity : ComponentActivity() {
+
+    private var estado by mutableStateOf("Conectando...")
+    private var ultimoMensaje by mutableStateOf("(ninguno)")
+
+    @Volatile private var salida: PrintWriter? = null
+    @Volatile private var activo = true
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        conectar()
+
         setContent {
-            WearApp("Android")
-        }
-    }
-}
-
-@Composable
-fun WearApp(greetingName: String) {
-    DisciplinaTraderTheme {
-        AppScaffold {
-            val listState = rememberTransformingLazyColumnState()
-            val transformationSpec = rememberTransformationSpec()
-            ScreenScaffold(
-                scrollState = listState,
-                edgeButton = {
-                    EdgeButton(
-                        onClick = { /*TODO*/ },
-                        colors =
-                            ButtonDefaults.buttonColors(
-                                containerColor = MaterialTheme.colorScheme.secondaryContainer,
-                                contentColor = MaterialTheme.colorScheme.onSecondaryContainer,
-                            ),
-                    ) {
-                        Text("More")
-                    }
-                },
-            ) { contentPadding -> // ScreenScaffold provides default padding; adjust as needed
-                TransformingLazyColumn(contentPadding = contentPadding, state = listState) {
-                    item {
-                        ListHeader(
-                            modifier =
-                                Modifier.fillMaxWidth().transformedHeight(this, transformationSpec),
-                            transformation = SurfaceTransformation(transformationSpec),
-                        ) {
-                            Text(text = stringResource(R.string.hello_world, greetingName))
-                        }
-                    }
-                    item {
-                        Button(
-                            onClick = { /*TODO*/ },
-                            modifier = Modifier.fillMaxWidth()
-                                .transformedHeight(this, transformationSpec),
-                            transformation = SurfaceTransformation(transformationSpec),
-                        ) {
-                            Text("Button A")
-                        }
-                    }
-                    item {
-                        Button(
-                            onClick = { /*TODO*/ },
-                            modifier = Modifier.fillMaxWidth()
-                                .transformedHeight(this, transformationSpec),
-                            transformation = SurfaceTransformation(transformationSpec),
-                        ) {
-                            Text("Button B")
-                        }
-                    }
-                    item {
-                        Button(
-                            onClick = { /*TODO*/ },
-                            modifier = Modifier.fillMaxWidth()
-                                .transformedHeight(this, transformationSpec),
-                            transformation = SurfaceTransformation(transformationSpec),
-                        ) {
-                            Text("Button C")
-                        }
-                    }
-
+            val texto = TextStyle(color = Color.White, fontSize = 13.sp)
+            Column(
+                modifier = Modifier.fillMaxSize().padding(28.dp),
+                verticalArrangement = Arrangement.Center,
+                horizontalAlignment = Alignment.CenterHorizontally
+            ) {
+                BasicText("Reloj (cliente)", style = texto)
+                BasicText("Estado: $estado", style = texto)
+                BasicText("Celular dice: $ultimoMensaje", style = texto)
+                Box(
+                    modifier = Modifier
+                        .padding(top = 8.dp)
+                        .background(Color(0xFF3D5AFE))
+                        .clickable { enviar("Hola desde el reloj") }
+                        .padding(horizontal = 14.dp, vertical = 8.dp)
+                ) {
+                    BasicText("Enviar", style = texto)
                 }
             }
         }
     }
-}
 
-@WearPreviewDevices
-@WearPreviewFontScales
-@Composable
-fun DefaultPreview() {
-    WearApp("Preview Android")
+    private fun conectar() {
+        thread(isDaemon = true) {
+            while (activo) {
+                try {
+                    val socket = Socket(HOST, PUERTO)
+                    estado = "Conectado al celular"
+                    salida = PrintWriter(socket.getOutputStream(), true)
+                    val lector = BufferedReader(InputStreamReader(socket.getInputStream()))
+                    while (true) {
+                        val linea = lector.readLine() ?: break
+                        ultimoMensaje = linea
+                    }
+                    socket.close()
+                } catch (_: Exception) {
+                }
+                salida = null
+                estado = "Sin conexión, reintentando..."
+                Thread.sleep(2000)
+            }
+        }
+    }
+
+    private fun enviar(texto: String) {
+        thread { salida?.println(texto) }
+    }
+
+    override fun onDestroy() {
+        super.onDestroy()
+        activo = false
+    }
+
+    companion object {
+        const val HOST = "10.0.2.2"
+        const val PUERTO = 8080
+    }
 }
