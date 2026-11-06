@@ -24,3 +24,4 @@ dependencyResolutionManagement {
 
 rootProject.name = "DisciplinaTrader"
 include(":app")
+include(":wear")
