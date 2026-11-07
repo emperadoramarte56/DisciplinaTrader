@@ -16,6 +16,7 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -30,32 +31,46 @@ class MainActivity : ComponentActivity() {
 
     private var conectado by mutableStateOf(false)
     private var ultimoMensaje by mutableStateOf("(ninguno)")
+    private var aviso by mutableStateOf("")
+    private var version by mutableIntStateOf(0)
+
     private val canal: Canal = CanalSocketServidor()
+    private val generador = GeneradorPrecios()
+    private val portafolio = Portafolio()
+    private val motor = MotorReglas(capitalInicial = portafolio.saldoInicial)
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 
         canal.alCambiarConexion = { conectado = it }
-        canal.alRecibir = { ultimoMensaje = it.aLinea() }
+        canal.alRecibir = { msg ->
+            ultimoMensaje = msg.aLinea()
+            if (msg.tipo == TipoMensaje.DESBLOQUEAR) {
+                motor.levantarBloqueo()
+                canal.enviar(Mensaje(TipoMensaje.BLOQUEO_LEVANTADO))
+                aviso = "Bloqueo levantado desde el reloj"
+                version++
+            }
+        }
         canal.iniciar()
 
         setContent {
-            val generador = remember { GeneradorPrecios() }
-            val portafolio = remember { Portafolio() }
             var pares by remember { mutableStateOf(generador.pares()) }
-            var version by remember { mutableIntStateOf(0) }
-            var aviso by remember { mutableStateOf("") }
+            var ahora by remember { mutableLongStateOf(System.currentTimeMillis()) }
 
             LaunchedEffect(Unit) {
                 while (true) {
                     delay(1000)
                     pares = generador.siguiente()
+                    ahora = System.currentTimeMillis()
                 }
             }
 
-            // Leer 'version' obliga a redibujar cuando cambia el portafolio.
-            @Suppress("UNUSED_VARIABLE")
-            val refresco = version
+            // Leer estos estados obliga a redibujar cuando cambian.
+            @Suppress("UNUSED_VARIABLE") val refrescoVersion = version
+            @Suppress("UNUSED_VARIABLE") val refrescoTiempo = ahora
+
+            val bloqueado = motor.estaBloqueado()
 
             Column(
                 modifier = Modifier
@@ -67,6 +82,13 @@ class MainActivity : ComponentActivity() {
                 Text("Reloj: ${if (conectado) "conectado" else "sin conexión"}")
                 Text("Saldo: $${formato(portafolio.saldo)}")
                 Text("Resultado cerrado: $${formato(portafolio.pnlRealizado())}")
+
+                if (bloqueado) {
+                    Text(
+                        "BLOQUEADO: quedan ${motor.segundosRestantes()} s",
+                        color = Color(0xFFC62828)
+                    )
+                }
 
                 pares.forEach { par ->
                     val pos = portafolio.posicion(par.simbolo)
@@ -86,16 +108,22 @@ class MainActivity : ComponentActivity() {
                             }
                         }
                         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                            Button(onClick = {
-                                aviso = portafolio.comprar(par.simbolo, par.precio)
-                                    ?: "Compraste ${par.simbolo}"
-                                version++
-                            }) { Text("Comprar") }
+                            Button(
+                                enabled = !bloqueado,
+                                onClick = {
+                                    aviso = portafolio.comprar(par.simbolo, par.precio)
+                                        ?: "Compraste ${par.simbolo}"
+                                    version++
+                                }
+                            ) { Text("Comprar") }
                             Button(
                                 enabled = pos != null,
                                 onClick = {
-                                    aviso = portafolio.vender(par.simbolo, par.precio)
-                                        ?: "Cerraste ${par.simbolo}"
+                                    val error = portafolio.vender(par.simbolo, par.precio)
+                                    aviso = error ?: "Cerraste ${par.simbolo}"
+                                    if (error == null) {
+                                        registrarResultado(portafolio.resultadosCerrados().last())
+                                    }
                                     version++
                                 }
                             ) { Text("Vender") }
@@ -104,8 +132,32 @@ class MainActivity : ComponentActivity() {
                 }
 
                 Text(aviso)
+
+                Text("— DEBUG —")
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Button(onClick = {
+                        registrarResultado(-100.0)
+                        version++
+                    }) { Text("Forzar pérdida") }
+                    Button(onClick = {
+                        motor.levantarBloqueo()
+                        canal.enviar(Mensaje(TipoMensaje.BLOQUEO_LEVANTADO))
+                        aviso = "Bloqueo levantado (debug)"
+                        version++
+                    }) { Text("Levantar") }
+                }
                 Text("Último mensaje del reloj: $ultimoMensaje")
             }
+        }
+    }
+
+    /** Pasa el resultado al motor y, si activa el bloqueo, avisa al reloj. */
+    private fun registrarResultado(resultado: Double) {
+        if (motor.registrarResultado(resultado)) {
+            aviso = "Bloqueo activado por ${motor.segundosRestantes()} s"
+            canal.enviar(
+                Mensaje(TipoMensaje.BLOQUEO_ACTIVO, motor.segundosRestantes().toString())
+            )
         }
     }
 
