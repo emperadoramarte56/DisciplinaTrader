@@ -14,23 +14,19 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
-import java.io.BufferedReader
-import java.io.InputStreamReader
-import java.io.PrintWriter
-import java.net.ServerSocket
-import kotlin.concurrent.thread
 
 class MainActivity : ComponentActivity() {
 
-    private var estado by mutableStateOf("Esperando al reloj...")
+    private var conectado by mutableStateOf(false)
     private var ultimoMensaje by mutableStateOf("(ninguno)")
-
-    @Volatile private var salida: PrintWriter? = null
-    private var servidor: ServerSocket? = null
+    private val canal: Canal = CanalSocketServidor()
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        iniciarServidor()
+
+        canal.alCambiarConexion = { conectado = it }
+        canal.alRecibir = { ultimoMensaje = it.aLinea() }
+        canal.iniciar()
 
         setContent {
             Column(
@@ -38,53 +34,19 @@ class MainActivity : ComponentActivity() {
                 verticalArrangement = Arrangement.Center
             ) {
                 Text("Celular (servidor)")
-                Text("Estado: $estado")
-                Text("Último mensaje del reloj: $ultimoMensaje")
-                Button(onClick = { enviar("Hola desde el celular") }) {
-                    Text("Enviar al reloj")
+                Text("Reloj: ${if (conectado) "conectado" else "sin conexión"}")
+                Text("Último mensaje: $ultimoMensaje")
+                Button(onClick = {
+                    canal.enviar(Mensaje(TipoMensaje.ORDEN_PENDIENTE, "USD/MXN,COMPRA,1000"))
+                }) {
+                    Text("Simular orden")
                 }
             }
         }
-    }
-
-    private fun iniciarServidor() {
-        thread(isDaemon = true) {
-            try {
-                val server = ServerSocket(PUERTO)
-                servidor = server
-                while (!server.isClosed) {
-                    val socket = server.accept()
-                    estado = "Reloj conectado"
-                    salida = PrintWriter(socket.getOutputStream(), true)
-                    val lector = BufferedReader(InputStreamReader(socket.getInputStream()))
-                    try {
-                        while (true) {
-                            val linea = lector.readLine() ?: break
-                            ultimoMensaje = linea
-                        }
-                    } catch (_: Exception) {
-                    }
-                    salida = null
-                    estado = "Reloj desconectado, esperando..."
-                    socket.close()
-                }
-            } catch (e: Exception) {
-                estado = "Error: ${e.message}"
-            }
-        }
-    }
-
-    private fun enviar(texto: String) {
-        // Escribir en un socket no se puede hacer en el hilo principal
-        thread { salida?.println(texto) }
     }
 
     override fun onDestroy() {
         super.onDestroy()
-        servidor?.close()
-    }
-
-    companion object {
-        const val PUERTO = 8080
+        canal.detener()
     }
 }
