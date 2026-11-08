@@ -26,7 +26,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import kotlinx.coroutines.delay
 
-enum class Pantalla { ESPERA, PAUSA, DECIDIR, BLOQUEO }
+enum class Pantalla { ESPERA, PAUSA, DECIDIR, MOTIVO, BLOQUEO }
 
 class MainActivity : ComponentActivity() {
 
@@ -49,6 +49,7 @@ class MainActivity : ComponentActivity() {
 
         setContent {
             val texto = TextStyle(color = Color.White, fontSize = 13.sp)
+            val chico = TextStyle(color = Color.White, fontSize = 11.sp)
             val grande = TextStyle(color = Color.White, fontSize = 22.sp)
 
             // Cuenta regresiva de la pausa y del bloqueo.
@@ -114,6 +115,24 @@ class MainActivity : ComponentActivity() {
                         }
                     }
 
+                    Pantalla.MOTIVO -> {
+                        BasicText("¿Por qué compraste?", style = texto)
+                        Row(
+                            modifier = Modifier.padding(top = 6.dp),
+                            horizontalArrangement = Arrangement.spacedBy(6.dp)
+                        ) {
+                            Boton("Análisis", Color(0xFF3D5AFE), chico) { elegirMotivo("Analisis") }
+                            Boton("Noticia", Color(0xFF3D5AFE), chico) { elegirMotivo("Noticia") }
+                        }
+                        Row(
+                            modifier = Modifier.padding(top = 6.dp),
+                            horizontalArrangement = Arrangement.spacedBy(6.dp)
+                        ) {
+                            Boton("Intuición", Color(0xFF3D5AFE), chico) { elegirMotivo("Intuicion") }
+                            Boton("Miedo", Color(0xFF3D5AFE), chico) { elegirMotivo("Miedo") }
+                        }
+                    }
+
                     Pantalla.BLOQUEO -> {
                         BasicText("BLOQUEADO", style = grande)
                         BasicText("$bloqueoRestante s", style = grande)
@@ -132,6 +151,11 @@ class MainActivity : ComponentActivity() {
         }
     }
 
+    private fun elegirMotivo(motivo: String) {
+        canal.enviar(Mensaje(TipoMensaje.MOTIVO, motivo))
+        pantalla = Pantalla.ESPERA
+    }
+
     private fun procesarMensaje(msg: Mensaje) {
         when (msg.tipo) {
             TipoMensaje.PULSO -> {
@@ -142,6 +166,10 @@ class MainActivity : ComponentActivity() {
                 pausaRestante = partes.getOrNull(0)?.toIntOrNull() ?: 10
                 simbolo = partes.getOrElse(1) { "" }
                 pantalla = Pantalla.PAUSA
+            }
+            TipoMensaje.PEDIR_MOTIVO -> {
+                simbolo = msg.dato
+                pantalla = Pantalla.MOTIVO
             }
             TipoMensaje.BLOQUEO_ACTIVO -> {
                 bloqueoRestante = msg.dato.toIntOrNull() ?: 60

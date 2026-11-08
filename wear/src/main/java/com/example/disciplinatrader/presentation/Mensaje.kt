@@ -5,6 +5,8 @@ enum class TipoMensaje {
     INICIAR_PAUSA,
     BLOQUEO_ACTIVO,
     BLOQUEO_LEVANTADO,
+
+    PEDIR_MOTIVO,
     // reloj -> celular
     CONFIRMAR,
     CANCELAR,

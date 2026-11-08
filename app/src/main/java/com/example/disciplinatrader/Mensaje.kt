@@ -4,6 +4,7 @@ enum class TipoMensaje {
     // celular -> reloj
     ORDEN_PENDIENTE,
     INICIAR_PAUSA,
+    PEDIR_MOTIVO,
     BLOQUEO_ACTIVO,
     BLOQUEO_LEVANTADO,
     // reloj -> celular

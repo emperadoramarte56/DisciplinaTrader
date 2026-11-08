@@ -43,6 +43,7 @@ class MainActivity : ComponentActivity() {
     private val portafolio = Portafolio()
     private val motor = MotorReglas(capitalInicial = portafolio.saldoInicial)
     private val freno = FrenoEmocional()
+    private val diario = Diario()
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -134,7 +135,9 @@ class MainActivity : ComponentActivity() {
                                     val error = portafolio.vender(par.simbolo, par.precio)
                                     aviso = error ?: "Cerraste ${par.simbolo}"
                                     if (error == null) {
-                                        registrarResultado(portafolio.resultadosCerrados().last())
+                                        val resultado = portafolio.resultadosCerrados().last()
+                                        diario.cerrarPosicion(par.simbolo, resultado)
+                                        registrarResultado(resultado)
                                     }
                                     version++
                                 }
@@ -144,6 +147,20 @@ class MainActivity : ComponentActivity() {
                 }
 
                 Text(aviso)
+
+                Text("— PATRONES POR MOTIVO —")
+                val resumen = diario.resumenPorMotivo()
+                if (resumen.isEmpty()) {
+                    Text("Aún no hay operaciones cerradas.")
+                } else {
+                    resumen.forEach { r ->
+                        Text(
+                            "${r.motivo}: ${r.cerradas} cerradas, " +
+                                    "${r.porcentajeGanadas}% ganadas, total $${formato(r.total)}",
+                            color = if (r.total >= 0) Color(0xFF2E7D32) else Color(0xFFC62828)
+                        )
+                    }
+                }
 
                 Text("— DEBUG —")
                 Text("Pulso simulado: $pulso lpm (el freno se activa arriba de ${freno.umbral})")
@@ -167,6 +184,10 @@ class MainActivity : ComponentActivity() {
                         version++
                     }) { Text("Levantar") }
                 }
+                Button(onClick = {
+                    generarEjemplos()
+                    version++
+                }) { Text("Generar datos de ejemplo") }
                 Text("Último mensaje del reloj: $ultimoMensaje")
             }
         }
@@ -190,14 +211,24 @@ class MainActivity : ComponentActivity() {
                 aviso = "Pulso alto ($pulso): pausa en el reloj"
             }
         } else {
-            ejecutarCompra(par.simbolo)
+            ejecutarCompra(par.simbolo, huboPausa = false)
         }
         version++
     }
 
-    private fun ejecutarCompra(simbolo: String) {
+    /** Ejecuta la compra, la registra en el diario y le pide el motivo al reloj. */
+    private fun ejecutarCompra(simbolo: String, huboPausa: Boolean) {
         val par = generador.pares().first { it.simbolo == simbolo }
-        aviso = portafolio.comprar(par.simbolo, par.precio) ?: "Compraste $simbolo"
+        val error = portafolio.comprar(par.simbolo, par.precio)
+        if (error != null) {
+            aviso = error
+            return
+        }
+        diario.registrarCompra(simbolo, pulso, huboPausa)
+        aviso = "Compraste $simbolo"
+        if (conectado) {
+            canal.enviar(Mensaje(TipoMensaje.PEDIR_MOTIVO, simbolo))
+        }
     }
 
     private fun procesarMensaje(msg: Mensaje) {
@@ -209,7 +240,7 @@ class MainActivity : ComponentActivity() {
                     if (motor.estaBloqueado()) {
                         aviso = "Orden rechazada: hay un bloqueo activo"
                     } else {
-                        ejecutarCompra(simbolo)
+                        ejecutarCompra(simbolo, huboPausa = true)
                     }
                 }
             }
@@ -219,6 +250,11 @@ class MainActivity : ComponentActivity() {
                     aviso = "Cancelaste la orden de $pendiente desde el reloj"
                 }
                 pendiente = null
+            }
+            TipoMensaje.MOTIVO -> {
+                if (diario.asignarMotivo(msg.dato)) {
+                    aviso = "Motivo registrado: ${msg.dato}"
+                }
             }
             TipoMensaje.DESBLOQUEAR -> {
                 motor.levantarBloqueo()
@@ -238,6 +274,22 @@ class MainActivity : ComponentActivity() {
                 Mensaje(TipoMensaje.BLOQUEO_ACTIVO, motor.segundosRestantes().toString())
             )
         }
+    }
+
+    /** Datos falsos para ver las estadísticas sin esperar. Usan un par aparte ("EJEMPLO"). */
+    private fun generarEjemplos() {
+        val datos = listOf(
+            Triple("Analisis", 72, 25.0), Triple("Analisis", 70, 18.0), Triple("Analisis", 75, -12.0),
+            Triple("Noticia", 80, 8.0), Triple("Noticia", 78, -20.0),
+            Triple("Intuicion", 92, -35.0), Triple("Intuicion", 96, -28.0), Triple("Intuicion", 88, 10.0),
+            Triple("Miedo", 105, -40.0), Triple("Miedo", 99, -22.0)
+        )
+        datos.forEach { (motivo, p, resultado) ->
+            diario.registrarCompra("EJEMPLO", p, p > freno.umbral)
+            diario.asignarMotivo(motivo)
+            diario.cerrarPosicion("EJEMPLO", resultado)
+        }
+        aviso = "Datos de ejemplo generados"
     }
 
     private fun formato(valor: Double): String = String.format(Locale.US, "%.2f", valor)
