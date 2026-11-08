@@ -48,7 +48,7 @@ reloj para medir el estado del cuerpo y el celular para aplicar reglas.
 
 ## Requisitos
 
-- Android Studio - Android Studio Rabbit 1 | 2026.2.1 (Build #AI-262.9437.185.2621.16467767)
+- Android Studio Rabbit 1 | 2026.2.1 (Build #AI-262.9437.185.2621.16467767)
 - JDK incluido con Android Studio (JetBrains Runtime 25)
 - Dos emuladores: un teléfono (por ejemplo Pixel 7, API 34) y un reloj
   (Wear OS Small Round, API 33)
