@@ -13,7 +13,9 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.text.BasicText
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -22,41 +24,133 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import kotlinx.coroutines.delay
+
+enum class Pantalla { ESPERA, PAUSA, DECIDIR, BLOQUEO }
 
 class MainActivity : ComponentActivity() {
 
     private var conectado by mutableStateOf(false)
-    private var ultimoMensaje by mutableStateOf("(ninguno)")
+    private var pantalla by mutableStateOf(Pantalla.ESPERA)
+    private var pulso by mutableIntStateOf(0)
+    private var simbolo by mutableStateOf("")
+    private var pausaRestante by mutableIntStateOf(0)
+    private var bloqueoRestante by mutableIntStateOf(0)
+    private var bloqueoTranscurrido by mutableIntStateOf(0)
+
     private val canal: Canal = CanalSocketCliente()
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 
         canal.alCambiarConexion = { conectado = it }
-        canal.alRecibir = { ultimoMensaje = it.aLinea() }
+        canal.alRecibir = { procesarMensaje(it) }
         canal.iniciar()
 
         setContent {
-            val texto = TextStyle(color = Color.White, fontSize = 12.sp)
+            val texto = TextStyle(color = Color.White, fontSize = 13.sp)
+            val grande = TextStyle(color = Color.White, fontSize = 22.sp)
+
+            // Cuenta regresiva de la pausa y del bloqueo.
+            LaunchedEffect(pantalla) {
+                when (pantalla) {
+                    Pantalla.PAUSA -> {
+                        while (pausaRestante > 0) {
+                            delay(1000)
+                            pausaRestante--
+                        }
+                        pantalla = Pantalla.DECIDIR
+                    }
+                    Pantalla.BLOQUEO -> {
+                        bloqueoTranscurrido = 0
+                        while (bloqueoRestante > 0) {
+                            delay(1000)
+                            bloqueoRestante--
+                            bloqueoTranscurrido++
+                        }
+                        pantalla = Pantalla.ESPERA
+                    }
+                    else -> {}
+                }
+            }
+
             Column(
-                modifier = Modifier.fillMaxSize().padding(24.dp),
+                modifier = Modifier.fillMaxSize().padding(26.dp),
                 verticalArrangement = Arrangement.Center,
                 horizontalAlignment = Alignment.CenterHorizontally
             ) {
-                BasicText("Celular: ${if (conectado) "conectado" else "sin conexión"}", style = texto)
-                BasicText("Recibí: $ultimoMensaje", style = texto)
-                Row(
-                    modifier = Modifier.padding(top = 8.dp),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp)
-                ) {
-                    Boton("Confirmar", Color(0xFF2E7D32), texto) {
-                        canal.enviar(Mensaje(TipoMensaje.CONFIRMAR))
+                when (pantalla) {
+                    Pantalla.ESPERA -> {
+                        BasicText("Celular: ${if (conectado) "conectado" else "sin conexión"}", style = texto)
+                        BasicText(
+                            if (pulso > 0) "Pulso: $pulso lpm" else "Pulso: --",
+                            style = grande
+                        )
+                        BasicText("Esperando órdenes", style = texto)
                     }
-                    Boton("Cancelar", Color(0xFFC62828), texto) {
-                        canal.enviar(Mensaje(TipoMensaje.CANCELAR))
+
+                    Pantalla.PAUSA -> {
+                        val fase = if ((pausaRestante / 2) % 2 == 0) "Inhala..." else "Exhala..."
+                        BasicText("Pulso alto: respira", style = texto)
+                        BasicText(fase, style = grande)
+                        BasicText("$pausaRestante s", style = grande)
+                        BasicText(simbolo, style = texto)
+                    }
+
+                    Pantalla.DECIDIR -> {
+                        BasicText("¿Comprar $simbolo?", style = texto)
+                        Row(
+                            modifier = Modifier.padding(top = 10.dp),
+                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            Boton("Confirmar", Color(0xFF2E7D32), texto) {
+                                canal.enviar(Mensaje(TipoMensaje.CONFIRMAR))
+                                pantalla = Pantalla.ESPERA
+                            }
+                            Boton("Cancelar", Color(0xFFC62828), texto) {
+                                canal.enviar(Mensaje(TipoMensaje.CANCELAR))
+                                pantalla = Pantalla.ESPERA
+                            }
+                        }
+                    }
+
+                    Pantalla.BLOQUEO -> {
+                        BasicText("BLOQUEADO", style = grande)
+                        BasicText("$bloqueoRestante s", style = grande)
+                        val espera = 10 - bloqueoTranscurrido
+                        Boton(
+                            texto = if (espera > 0) "Desbloquear ($espera)" else "Desbloquear",
+                            color = Color(0xFF3D5AFE),
+                            estilo = texto,
+                            habilitado = espera <= 0
+                        ) {
+                            canal.enviar(Mensaje(TipoMensaje.DESBLOQUEAR))
+                        }
                     }
                 }
             }
+        }
+    }
+
+    private fun procesarMensaje(msg: Mensaje) {
+        when (msg.tipo) {
+            TipoMensaje.PULSO -> {
+                pulso = msg.dato.toIntOrNull() ?: pulso
+            }
+            TipoMensaje.INICIAR_PAUSA -> {
+                val partes = msg.dato.split(",")
+                pausaRestante = partes.getOrNull(0)?.toIntOrNull() ?: 10
+                simbolo = partes.getOrElse(1) { "" }
+                pantalla = Pantalla.PAUSA
+            }
+            TipoMensaje.BLOQUEO_ACTIVO -> {
+                bloqueoRestante = msg.dato.toIntOrNull() ?: 60
+                pantalla = Pantalla.BLOQUEO
+            }
+            TipoMensaje.BLOQUEO_LEVANTADO -> {
+                pantalla = Pantalla.ESPERA
+            }
+            else -> {}
         }
     }
 
@@ -67,11 +161,17 @@ class MainActivity : ComponentActivity() {
 }
 
 @Composable
-private fun Boton(texto: String, color: Color, estilo: TextStyle, alTocar: () -> Unit) {
+private fun Boton(
+    texto: String,
+    color: Color,
+    estilo: TextStyle,
+    habilitado: Boolean = true,
+    alTocar: () -> Unit
+) {
     Box(
         modifier = Modifier
-            .background(color)
-            .clickable { alTocar() }
+            .background(if (habilitado) color else Color(0xFF555555))
+            .clickable(enabled = habilitado) { alTocar() }
             .padding(horizontal = 10.dp, vertical = 8.dp)
     ) {
         BasicText(texto, style = estilo)

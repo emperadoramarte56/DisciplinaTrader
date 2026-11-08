@@ -12,6 +12,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Button
+import androidx.compose.material3.Slider
 import androidx.compose.material3.Text
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -33,24 +34,31 @@ class MainActivity : ComponentActivity() {
     private var ultimoMensaje by mutableStateOf("(ninguno)")
     private var aviso by mutableStateOf("")
     private var version by mutableIntStateOf(0)
+    private var pulso by mutableIntStateOf(70)
+    private var pendiente by mutableStateOf<String?>(null)
+    private var cancelaciones by mutableIntStateOf(0)
 
     private val canal: Canal = CanalSocketServidor()
     private val generador = GeneradorPrecios()
     private val portafolio = Portafolio()
     private val motor = MotorReglas(capitalInicial = portafolio.saldoInicial)
+    private val freno = FrenoEmocional()
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 
-        canal.alCambiarConexion = { conectado = it }
+        canal.alCambiarConexion = {
+            conectado = it
+            if (it) {
+                // Al conectarse el reloj, le mandamos el pulso actual
+                canal.enviar(Mensaje(TipoMensaje.PULSO, pulso.toString()))
+            } else {
+                pendiente = null
+            }
+        }
         canal.alRecibir = { msg ->
             ultimoMensaje = msg.aLinea()
-            if (msg.tipo == TipoMensaje.DESBLOQUEAR) {
-                motor.levantarBloqueo()
-                canal.enviar(Mensaje(TipoMensaje.BLOQUEO_LEVANTADO))
-                aviso = "Bloqueo levantado desde el reloj"
-                version++
-            }
+            runOnUiThread { procesarMensaje(msg) }
         }
         canal.iniciar()
 
@@ -71,6 +79,7 @@ class MainActivity : ComponentActivity() {
             @Suppress("UNUSED_VARIABLE") val refrescoTiempo = ahora
 
             val bloqueado = motor.estaBloqueado()
+            val hayPendiente = pendiente != null
 
             Column(
                 modifier = Modifier
@@ -82,11 +91,18 @@ class MainActivity : ComponentActivity() {
                 Text("Reloj: ${if (conectado) "conectado" else "sin conexión"}")
                 Text("Saldo: $${formato(portafolio.saldo)}")
                 Text("Resultado cerrado: $${formato(portafolio.pnlRealizado())}")
+                Text("Órdenes frenadas (canceladas): $cancelaciones")
 
                 if (bloqueado) {
                     Text(
                         "BLOQUEADO: quedan ${motor.segundosRestantes()} s",
                         color = Color(0xFFC62828)
+                    )
+                }
+                if (hayPendiente) {
+                    Text(
+                        "Esperando decisión en el reloj: ${pendiente}",
+                        color = Color(0xFFEF6C00)
                     )
                 }
 
@@ -109,12 +125,8 @@ class MainActivity : ComponentActivity() {
                         }
                         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                             Button(
-                                enabled = !bloqueado,
-                                onClick = {
-                                    aviso = portafolio.comprar(par.simbolo, par.precio)
-                                        ?: "Compraste ${par.simbolo}"
-                                    version++
-                                }
+                                enabled = !bloqueado && !hayPendiente,
+                                onClick = { intentarComprar(par) }
                             ) { Text("Comprar") }
                             Button(
                                 enabled = pos != null,
@@ -134,6 +146,15 @@ class MainActivity : ComponentActivity() {
                 Text(aviso)
 
                 Text("— DEBUG —")
+                Text("Pulso simulado: $pulso lpm (el freno se activa arriba de ${freno.umbral})")
+                Slider(
+                    value = pulso.toFloat(),
+                    onValueChange = { pulso = it.toInt() },
+                    onValueChangeFinished = {
+                        canal.enviar(Mensaje(TipoMensaje.PULSO, pulso.toString()))
+                    },
+                    valueRange = 50f..140f
+                )
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     Button(onClick = {
                         registrarResultado(-100.0)
@@ -149,6 +170,64 @@ class MainActivity : ComponentActivity() {
                 Text("Último mensaje del reloj: $ultimoMensaje")
             }
         }
+    }
+
+    /** Compra directa si el pulso es normal; si es alto, manda la orden al reloj para la pausa. */
+    private fun intentarComprar(par: ParDivisas) {
+        if (motor.estaBloqueado()) {
+            aviso = "Bloqueado: no puedes comprar ahora"
+        } else if (freno.requiereFreno(pulso)) {
+            if (!conectado) {
+                aviso = "Pulso alto: conecta el reloj para poder confirmar"
+            } else {
+                pendiente = par.simbolo
+                canal.enviar(
+                    Mensaje(
+                        TipoMensaje.INICIAR_PAUSA,
+                        "${freno.segundosPausa},${par.simbolo},COMPRA"
+                    )
+                )
+                aviso = "Pulso alto ($pulso): pausa en el reloj"
+            }
+        } else {
+            ejecutarCompra(par.simbolo)
+        }
+        version++
+    }
+
+    private fun ejecutarCompra(simbolo: String) {
+        val par = generador.pares().first { it.simbolo == simbolo }
+        aviso = portafolio.comprar(par.simbolo, par.precio) ?: "Compraste $simbolo"
+    }
+
+    private fun procesarMensaje(msg: Mensaje) {
+        when (msg.tipo) {
+            TipoMensaje.CONFIRMAR -> {
+                val simbolo = pendiente
+                pendiente = null
+                if (simbolo != null) {
+                    if (motor.estaBloqueado()) {
+                        aviso = "Orden rechazada: hay un bloqueo activo"
+                    } else {
+                        ejecutarCompra(simbolo)
+                    }
+                }
+            }
+            TipoMensaje.CANCELAR -> {
+                if (pendiente != null) {
+                    cancelaciones++
+                    aviso = "Cancelaste la orden de $pendiente desde el reloj"
+                }
+                pendiente = null
+            }
+            TipoMensaje.DESBLOQUEAR -> {
+                motor.levantarBloqueo()
+                canal.enviar(Mensaje(TipoMensaje.BLOQUEO_LEVANTADO))
+                aviso = "Bloqueo levantado desde el reloj"
+            }
+            else -> {}
+        }
+        version++
     }
 
     /** Pasa el resultado al motor y, si activa el bloqueo, avisa al reloj. */
