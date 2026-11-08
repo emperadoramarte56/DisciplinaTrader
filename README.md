@@ -23,6 +23,16 @@ reloj para medir el estado del cuerpo y el celular para aplicar reglas.
    (Análisis, Noticia, Intuición o Miedo). El celular muestra por motivo el
    número de operaciones cerradas, el % ganadas y el resultado total.
 
+## Capturas
+
+| Celular: mercado | Reloj: pausa | Reloj: bloqueo |
+|---|---|---|
+| ![mercado](capturas/celular-mercado.png) | ![pausa](capturas/reloj-pausa.png) | ![bloqueo](capturas/reloj-bloqueo.png) |
+
+| Reloj: decidir | Reloj: motivo | Celular: patrones |
+|---|---|---|
+| ![decidir](capturas/reloj-decidir.png) | ![motivo](capturas/reloj-motivo.png) | ![patrones](capturas/celular-patrones.png) |
+
 ## Reparto de roles
 
 | Dispositivo | Qué hace |
