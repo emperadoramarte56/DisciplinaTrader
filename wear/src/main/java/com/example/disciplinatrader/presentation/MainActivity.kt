@@ -76,7 +76,7 @@ class MainActivity : ComponentActivity() {
             }
 
             Column(
-                modifier = Modifier.fillMaxSize().padding(26.dp),
+                modifier = Modifier.fillMaxSize().background(Color.Black).padding(26.dp),
                 verticalArrangement = Arrangement.Center,
                 horizontalAlignment = Alignment.CenterHorizontally
             ) {
@@ -104,11 +104,11 @@ class MainActivity : ComponentActivity() {
                             modifier = Modifier.padding(top = 10.dp),
                             horizontalArrangement = Arrangement.spacedBy(8.dp)
                         ) {
-                            Boton("Confirmar", Color(0xFF2E7D32), texto) {
+                            Boton("Confirmar", Color(0xFF2E7D32), chico) {
                                 canal.enviar(Mensaje(TipoMensaje.CONFIRMAR))
                                 pantalla = Pantalla.ESPERA
                             }
-                            Boton("Cancelar", Color(0xFFC62828), texto) {
+                            Boton("Cancelar", Color(0xFFC62828), chico) {
                                 canal.enviar(Mensaje(TipoMensaje.CANCELAR))
                                 pantalla = Pantalla.ESPERA
                             }
@@ -200,8 +200,8 @@ private fun Boton(
         modifier = Modifier
             .background(if (habilitado) color else Color(0xFF555555))
             .clickable(enabled = habilitado) { alTocar() }
-            .padding(horizontal = 10.dp, vertical = 8.dp)
+            .padding(horizontal = 8.dp, vertical = 8.dp)
     ) {
-        BasicText(texto, style = estilo)
+        BasicText(texto, style = estilo, softWrap = false, maxLines = 1)
     }
 }
